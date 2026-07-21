@@ -42,7 +42,11 @@ def _ensure_base_data() -> None:
         except Exception:
             pass
     prepare_queue(settings.database_path)
-    if query(settings.database_path, "SELECT COUNT(*) n FROM daily_prices")[0]["n"] == 0:
+    pending = query(
+        settings.database_path,
+        "SELECT COUNT(*) n FROM stock_sync_status WHERE price_status IN ('PENDING', 'FAILED')",
+    )[0]["n"]
+    if pending:
         sync_market_batch(settings.database_path)
 
 
@@ -154,7 +158,14 @@ def _in_market_window(now: datetime) -> bool:
 
 def run_daemon() -> None:
     initialize(settings.database_path)
-    while query(settings.database_path, "SELECT COUNT(*) n FROM daily_prices")[0]["n"] == 0:
+    while True:
+        prepare_queue(settings.database_path)
+        pending = query(
+            settings.database_path,
+            "SELECT COUNT(*) n FROM stock_sync_status WHERE price_status IN ('PENDING', 'FAILED')",
+        )[0]["n"]
+        if not pending:
+            break
         try:
             print(f"[{datetime.now():%F %T}] 正在初始化独立股票、行业和日线数据", flush=True)
             _ensure_base_data()
