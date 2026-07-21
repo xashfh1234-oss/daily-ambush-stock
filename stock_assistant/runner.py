@@ -45,7 +45,7 @@ def _ensure_base_data() -> None:
     prepare_queue(settings.database_path)
     pending = query(
         settings.database_path,
-        "SELECT COUNT(*) n FROM stock_sync_status WHERE price_status IN ('PENDING', 'FAILED')",
+        "SELECT COUNT(*) n FROM stock_sync_status WHERE price_status='PENDING'",
     )[0]["n"]
     if pending:
         sync_market_batch(settings.database_path)
@@ -206,7 +206,7 @@ def run_daemon() -> None:
         prepare_queue(settings.database_path)
         pending = query(
             settings.database_path,
-            "SELECT COUNT(*) n FROM stock_sync_status WHERE price_status IN ('PENDING', 'FAILED')",
+            "SELECT COUNT(*) n FROM stock_sync_status WHERE price_status='PENDING'",
         )[0]["n"]
         if not pending:
             break
