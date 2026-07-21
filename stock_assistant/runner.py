@@ -154,6 +154,13 @@ def _in_market_window(now: datetime) -> bool:
 
 def run_daemon() -> None:
     initialize(settings.database_path)
+    while query(settings.database_path, "SELECT COUNT(*) n FROM daily_prices")[0]["n"] == 0:
+        try:
+            print(f"[{datetime.now():%F %T}] 正在初始化独立股票、行业和日线数据", flush=True)
+            _ensure_base_data()
+        except Exception as error:
+            print(f"[{datetime.now():%F %T}] 首次初始化失败，60秒后重试：{error}", flush=True)
+            time_module.sleep(60)
     while True:
         now = datetime.now()
         slot = f"{now:%Y%m%d%H}{now.minute // SCAN_INTERVAL_MINUTES}"
