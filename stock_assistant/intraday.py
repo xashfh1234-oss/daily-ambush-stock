@@ -9,6 +9,7 @@ from .ambush import ambush_stock_diagnostics
 from .data_sources import normalize_code
 from .database import execute, query, upsert_records
 from .market import price_frame
+from .safeguards import stock_risk
 
 
 def _number(value, default=None):
@@ -125,6 +126,13 @@ def sync_intraday_data(path) -> dict:
         except Exception as sina_error:
             errors.append(f"板块：东方财富失败 {eastmoney_error}；新浪失败 {sina_error}")
 
+    # 涨停/炸板数量只用于判断市场情绪，不参与个股推荐。
+    try:
+        counts["limit"] = len(ak.stock_zt_pool_em(date=trade_date))
+        counts["broken"] = len(ak.stock_zt_pool_zbgc_em(date=trade_date))
+    except Exception as error:
+        errors.append(f"涨停/炸板情绪：{error}")
+
     status = "COMPLETED" if not errors else "PARTIAL" if any(counts.values()) else "FAILED"
     execute(
         path,
@@ -149,6 +157,13 @@ def build_intraday_candidates(path) -> dict[str, pd.DataFrame]:
     money = _latest_frame(path, "intraday_money_flow")
     sectors = _latest_frame(path, "intraday_sectors")
     stocks = {row["ts_code"]: dict(row) for row in query(path, "SELECT ts_code,name,industry FROM stocks")}
+    previous_money = {}
+    if not money.empty:
+        snapshot = str(money.iloc[0]["snapshot_at"])
+        previous_rows = query(path, """SELECT * FROM intraday_money_flow WHERE snapshot_at=(
+            SELECT MAX(snapshot_at) FROM intraday_money_flow WHERE snapshot_at<? AND trade_date=?
+        )""", (snapshot, snapshot[:10].replace("-", "")))
+        previous_money = {row["ts_code"]: dict(row) for row in previous_rows}
 
     top_sectors = pd.DataFrame()
     if not sectors.empty:
@@ -200,15 +215,28 @@ def build_intraday_candidates(path) -> dict[str, pd.DataFrame]:
             )
             if not all_conditions:
                 continue
+            blocked, risk_reason, fundamental_confidence = stock_risk(path, row["ts_code"], str(diag["trade_date"]))
+            if blocked:
+                continue
             sector_score = 1 - (sector_rank[industry] - 1) / max(len(strong_sector_names), 1)
             money_score = min(max(main_net, 0) / positive_max, 1)
             volume_score = max(0, 1 - abs(diag["volume_ratio"] - 1.5))
             position_score = 1 - diag["position60"]
-            score = 30 * money_score + 25 * sector_score + 20 * volume_score + 15 * position_score + 10 * max(diag["acceptance"], 0)
+            previous = previous_money.get(row["ts_code"])
+            intraday_acceptance = .5 if not previous else float(
+                main_net >= float(previous.get("main_net") or 0)
+                and float(row.get("price") or 0) >= float(previous.get("price") or 0) * .995
+            )
+            tail_strength = intraday_acceptance if datetime.now().hour >= 14 else .5 * intraday_acceptance
+            score = 30 * money_score + 25 * sector_score + 20 * volume_score + 15 * position_score + 10 * max((diag["acceptance"] + intraday_acceptance) / 2, 0)
             combined_rows.append({
                 **row, "industry": industry, "volume_ratio": diag["volume_ratio"],
                 "position60": diag["position60"], "confirm_price": diag["confirm_price"],
                 "invalid_price": diag["invalid_price"], "strategy_score": round(score, 2),
+                "fundamental_confidence": fundamental_confidence,
+                "risk_check": risk_reason,
+                "money_confidence": .75 if "代理" in str(row.get("source")) else 1.0,
+                "intraday_acceptance": intraday_acceptance, "tail_strength": tail_strength,
                 "reason": "全部满足：强势板块＋主力流入＋非大单流出＋涨幅<5%＋量能温和＋位置不高＋趋势未破坏",
             })
 

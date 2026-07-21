@@ -11,7 +11,7 @@ def test_run_once_saves_and_pushes_recommendation(tmp_path, monkeypatch):
     path = tmp_path / "runner.db"
     initialize(path)
     monkeypatch.setattr(runner, "settings", SimpleNamespace(database_path=path))
-    monkeypatch.setattr(runner, "_ensure_base_data", lambda: None)
+    monkeypatch.setattr(runner, "_ensure_base_data", lambda **kwargs: None)
     monkeypatch.setattr(runner, "_refresh_daily_if_due", lambda now: None)
     monkeypatch.setattr(runner, "sync_intraday_data", lambda path: {"money": 100, "sector": 10})
     monkeypatch.setattr(runner, "_market_snapshot", lambda path: {"state": "偏强", "up_ratio": .6, "median": .5})
@@ -22,6 +22,7 @@ def test_run_once_saves_and_pushes_recommendation(tmp_path, monkeypatch):
         "invalid_price": 9.5, "source": "测试", "reason": "全部满足",
     }])
     monkeypatch.setattr(runner, "build_intraday_candidates", lambda path: {"综合伏击候选": candidate})
+    monkeypatch.setattr(runner, "sync_candidate_risks", lambda *args: 0)
     pushed = []
     monkeypatch.setattr(runner, "_push_wechat", pushed.append)
 
@@ -36,7 +37,8 @@ def test_run_once_saves_and_pushes_recommendation(tmp_path, monkeypatch):
 
 
 def test_due_scan_uses_key_times():
-    assert runner._due_scan(datetime(2026, 7, 21, 9, 45)) == ("09:45", False)
-    assert runner._due_scan(datetime(2026, 7, 21, 14, 45)) == ("14:45", True)
+    assert runner._due_scan(datetime(2026, 7, 21, 9, 45)) == ("09:45", False, False)
+    assert runner._due_scan(datetime(2026, 7, 21, 14, 45)) == ("14:45", True, False)
+    assert runner._due_scan(datetime(2026, 7, 21, 10, 50)) == ("10:30", False, True)
     assert runner._due_scan(datetime(2026, 7, 21, 12, 0)) is None
     assert runner._due_scan(datetime(2026, 7, 19, 9, 45)) is None

@@ -157,7 +157,10 @@ CREATE TABLE IF NOT EXISTS recommendation_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TEXT NOT NULL,
     status TEXT NOT NULL, market_state TEXT, up_ratio REAL, median_pct REAL,
     candidate_count INTEGER NOT NULL DEFAULT 0, pushed INTEGER NOT NULL DEFAULT 0,
-    message TEXT, error TEXT, slot_label TEXT, is_final INTEGER NOT NULL DEFAULT 0
+    message TEXT, error TEXT, slot_label TEXT, is_final INTEGER NOT NULL DEFAULT 0,
+    data_status TEXT, data_confidence REAL, recommendation_allowed INTEGER NOT NULL DEFAULT 0,
+    is_catchup INTEGER NOT NULL DEFAULT 0, change_summary TEXT,
+    push_key TEXT, push_status TEXT, push_attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS recommendation_items (
     run_id INTEGER NOT NULL, rank_no INTEGER NOT NULL, ts_code TEXT NOT NULL,
@@ -165,11 +168,23 @@ CREATE TABLE IF NOT EXISTS recommendation_items (
     main_net REAL, small_net REAL, volume_ratio REAL, position60 REAL,
     confirm_price REAL, invalid_price REAL, source TEXT, reason TEXT,
     appearance_count INTEGER NOT NULL DEFAULT 1, lifecycle TEXT, final_score REAL,
+    data_confidence REAL, exit_reason TEXT, active INTEGER NOT NULL DEFAULT 1,
+    formal INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (run_id,ts_code),
     FOREIGN KEY (run_id) REFERENCES recommendation_runs(id)
 );
 CREATE TABLE IF NOT EXISTS scheduler_state (
     key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS risk_events (
+    ts_code TEXT NOT NULL, event_date TEXT NOT NULL, risk_type TEXT NOT NULL,
+    title TEXT NOT NULL, source TEXT, expires_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(ts_code,event_date,risk_type,title)
+);
+CREATE TABLE IF NOT EXISTS push_outbox (
+    push_key TEXT PRIMARY KEY, run_id INTEGER, text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING', attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT, created_at TEXT NOT NULL, sent_at TEXT
 );
 """
 
@@ -212,6 +227,20 @@ def initialize(path: Path) -> None:
             connection.execute("ALTER TABLE recommendation_items ADD COLUMN lifecycle TEXT")
         if "final_score" not in item_columns:
             connection.execute("ALTER TABLE recommendation_items ADD COLUMN final_score REAL")
+        migrations = {
+            "recommendation_runs": {
+                "data_status": "TEXT", "data_confidence": "REAL",
+                "recommendation_allowed": "INTEGER NOT NULL DEFAULT 0",
+                "is_catchup": "INTEGER NOT NULL DEFAULT 0", "change_summary": "TEXT",
+                "push_key": "TEXT", "push_status": "TEXT", "push_attempts": "INTEGER NOT NULL DEFAULT 0",
+            },
+            "recommendation_items": {"data_confidence": "REAL", "exit_reason": "TEXT", "active": "INTEGER NOT NULL DEFAULT 1", "formal": "INTEGER NOT NULL DEFAULT 0"},
+        }
+        for table, additions in migrations.items():
+            existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+            for column, definition in additions.items():
+                if column not in existing:
+                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def backup_database(path: Path, keep: int = 7) -> Path | None:

@@ -43,6 +43,7 @@ def test_sync_intraday_data_persists_normalized_snapshot(tmp_path, monkeypatch):
     result = sync_intraday_data(path)
     assert result["status"] == "COMPLETED"
     assert result["money"] == result["sector"] == 1
-    assert result["limit"] == result["broken"] == 0
+    assert result["limit"] == 1
+    assert result["broken"] == 0
     assert query(path, "SELECT small_net FROM intraday_money_flow")[0]["small_net"] == -80
     assert latest_intraday_run(path)["status"] == "COMPLETED"
