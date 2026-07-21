@@ -1,0 +1,7 @@
+streamlit>=1.36,<2
+pandas>=2.2,<4
+plotly>=5.22,<7
+akshare>=1.16,<2
+baostock>=0.8.9,<1
+python-dotenv>=1.0,<2
+pytest>=8.2,<10
