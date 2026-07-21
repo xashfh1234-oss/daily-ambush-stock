@@ -413,8 +413,11 @@ def run_daemon() -> None:
                 run_once(push=True, refresh_daily=True, slot_label=label, final=final, catchup=catchup)
                 _set_state(f"scan_{slot}", "DONE")
             elif is_trading_day(settings.database_path, now) and now.time() >= time(15, 35) and _close_refresh_due(now):
-                _refresh_daily_if_due(now)
-                _send_daily_health(now)
+                try:
+                    _refresh_daily_if_due(now)
+                finally:
+                    # 即使日线源失败，也必须告知用户当日服务和数据状态。
+                    _send_daily_health(now)
         except Exception as error:
             print(f"[{datetime.now():%F %T}] {error}", flush=True)
         time_module.sleep(60)
