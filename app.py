@@ -11,7 +11,7 @@ from stock_assistant.intraday import build_intraday_candidates, latest_intraday_
 from stock_assistant.market import market_as_of_date, price_frame
 
 
-st.set_page_config(page_title="A股综合伏击雷达", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="每日伏击股", page_icon="🎯", layout="wide")
 backup_database(settings.database_path)
 initialize(settings.database_path)
 st.markdown("""
@@ -40,7 +40,7 @@ def job_monitor():
 
 
 with st.sidebar:
-    st.markdown("## 综合伏击雷达")
+    st.markdown("## 每日伏击股")
     st.caption("独立数据库 · 不连接券商")
     initialize_universe = st.button("1. 初始化股票与行业", width="stretch")
     running = active_job(settings.database_path)

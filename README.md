@@ -1,4 +1,4 @@
-# A股综合伏击雷达
+# 每日伏击股
 
 一个完全独立的本地 Streamlit 项目，只实现综合伏击模式。候选股票必须同时满足：
 
@@ -14,7 +14,7 @@
 ## 运行
 
 ```bash
-cd /home/robotera/a-stock-ambush-assistant
+cd /home/robotera/每日伏击股
 python3 -m pip install -r requirements.txt
 streamlit run app.py --server.address 127.0.0.1
 ```
