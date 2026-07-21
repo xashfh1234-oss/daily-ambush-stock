@@ -1,0 +1,15 @@
+[Unit]
+Description=Daily Ambush Stock Scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/robotera/daily-ambush-stock
+ExecStart=/usr/bin/python3 -m stock_assistant.runner
+Restart=always
+RestartSec=15
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

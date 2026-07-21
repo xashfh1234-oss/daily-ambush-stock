@@ -153,6 +153,23 @@ CREATE TABLE IF NOT EXISTS intraday_sync_runs (
     status TEXT NOT NULL, money_count INTEGER DEFAULT 0, sector_count INTEGER DEFAULT 0,
     limit_count INTEGER DEFAULT 0, broken_count INTEGER DEFAULT 0, message TEXT
 );
+CREATE TABLE IF NOT EXISTS recommendation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TEXT NOT NULL,
+    status TEXT NOT NULL, market_state TEXT, up_ratio REAL, median_pct REAL,
+    candidate_count INTEGER NOT NULL DEFAULT 0, pushed INTEGER NOT NULL DEFAULT 0,
+    message TEXT, error TEXT
+);
+CREATE TABLE IF NOT EXISTS recommendation_items (
+    run_id INTEGER NOT NULL, rank_no INTEGER NOT NULL, ts_code TEXT NOT NULL,
+    name TEXT, industry TEXT, score REAL, price REAL, pct_chg REAL,
+    main_net REAL, small_net REAL, volume_ratio REAL, position60 REAL,
+    confirm_price REAL, invalid_price REAL, source TEXT, reason TEXT,
+    PRIMARY KEY (run_id,ts_code),
+    FOREIGN KEY (run_id) REFERENCES recommendation_runs(id)
+);
+CREATE TABLE IF NOT EXISTS scheduler_state (
+    key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 

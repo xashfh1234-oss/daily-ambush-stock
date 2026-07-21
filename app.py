@@ -1,18 +1,11 @@
-from datetime import date
-
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
-from stock_assistant.background_jobs import active_job, latest_job, request_stop, start_job, touch_heartbeat
 from stock_assistant.config import settings
-from stock_assistant.database import backup_database, initialize, query
-from stock_assistant.intraday import build_intraday_candidates, latest_intraday_run, sync_intraday_data
-from stock_assistant.market import market_as_of_date, price_frame
+from stock_assistant.database import initialize, query
 
 
-st.set_page_config(page_title="每日伏击股", page_icon="🎯", layout="wide")
-backup_database(settings.database_path)
+st.set_page_config(page_title="每日伏击股 · 历史", page_icon="🎯", layout="wide")
 initialize(settings.database_path)
 st.markdown("""
 <style>
@@ -22,124 +15,49 @@ st.markdown("""
   .hero p {margin: 0; opacity: .8;}
   [data-testid="stMetric"] {background: rgba(128,128,128,.06); border: 1px solid rgba(128,128,128,.14); border-radius: 12px; padding: 12px;}
 </style>
+<div class="hero"><h1>每日伏击股 · 历史记录</h1><p>后台服务自动同步、筛选并推送微信；本页面只读，不会触发任何任务。</p></div>
 """, unsafe_allow_html=True)
 
-
-@st.fragment(run_every=5)
-def job_monitor():
-    touch_heartbeat(settings.database_path)
-    job = active_job(settings.database_path)
-    if not job:
-        return
-    st.divider()
-    st.write("后台行情同步")
-    st.progress(min(job["current"] / job["total"], 1.0) if job["total"] else 0)
-    st.caption(f"{job['current']}/{job['total']} · {job['current_code'] or '准备中'}")
-    if st.button("停止任务", key=f"stop_{job['id']}"):
-        request_stop(settings.database_path)
-
-
-with st.sidebar:
-    st.markdown("## 每日伏击股")
-    st.caption("独立数据库 · 不连接券商")
-    initialize_universe = st.button("1. 初始化股票与行业", width="stretch")
-    running = active_job(settings.database_path)
-    initialize_prices = st.button("2. 初始化/续传日线", disabled=bool(running), width="stretch")
-    update_prices = st.button("更新最新可用日线", disabled=bool(running), width="stretch")
-    refresh_intraday = st.button("3. 同步盘中资金", type="primary", width="stretch")
-    job_monitor()
-
-
-if initialize_universe:
-    from stock_assistant.data_sources import AkShareSource, BaoStockSource
-    try:
-        with st.spinner("正在建立独立股票和行业数据……"):
-            stocks = AkShareSource().sync_stocks(settings.database_path)
-            industries = BaoStockSource().sync_industries(settings.database_path)
-        st.success(f"股票{stocks}只，行业分类{industries}条。下一步点击“初始化/续传日线”。")
-    except Exception as error:
-        st.error(f"初始化失败：{error}")
-
-if initialize_prices:
-    try:
-        job_id = start_job(settings.database_path, "MARKET", 100_000)
-        st.success(f"日线任务 #{job_id} 已启动；保持浏览器打开，可切换标签页。")
-    except Exception as error:
-        st.error(str(error))
-
-if update_prices:
-    from stock_assistant.batch_sync import queue_incremental_update
-    try:
-        queue_incremental_update(settings.database_path)
-        job_id = start_job(settings.database_path, "MARKET", 100_000)
-        st.success(f"最新日线任务 #{job_id} 已启动。")
-    except Exception as error:
-        st.error(str(error))
-
-if refresh_intraday:
-    with st.spinner("正在同步全市场资金和板块数据，约需20～40秒……"):
-        result = sync_intraday_data(settings.database_path)
-    if result["status"] == "COMPLETED":
-        st.success(f"盘中同步完成：资金{result['money']}只，板块{result['sector']}个。")
-    elif result["status"] == "PARTIAL":
-        st.warning("部分接口不可用，已自动使用备用来源或最近成功快照。")
-    else:
-        st.error("盘中接口暂时不可用，稍后重试。")
-
-st.markdown("""
-<div class="hero">
-  <h1>综合伏击候选</h1>
-  <p>只有同时满足强势板块、资金背离、涨幅、量能、位置、趋势和流动性要求的股票才会出现。</p>
-</div>
-""", unsafe_allow_html=True)
-
-eligible = query(settings.database_path, "SELECT COUNT(*) n FROM stock_sync_status WHERE eligible=1")[0]["n"]
-priced = query(settings.database_path, "SELECT COUNT(DISTINCT ts_code) n FROM daily_prices")[0]["n"]
-last_run = latest_intraday_run(settings.database_path)
+runs = [dict(row) for row in query(settings.database_path, "SELECT * FROM recommendation_runs ORDER BY id DESC LIMIT 200")]
+latest = runs[0] if runs else None
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("统一日线日期", market_as_of_date(settings.database_path) or "暂无")
-c2.metric("本地行情股票", int(priced or 0))
-c3.metric("合格股票", int(eligible or 0))
-c4.metric("盘中快照", last_run["snapshot_at"][5:16].replace("T", " ") if last_run else "暂无")
-if last_run and last_run.get("message"):
-    with st.expander("数据源与降级说明"):
-        st.write(last_run["message"])
+c1.metric("最近执行", latest["run_at"][5:16].replace("T", " ") if latest else "暂无")
+c2.metric("任务状态", latest["status"] if latest else "暂无")
+c3.metric("最近候选", latest["candidate_count"] if latest else 0)
+c4.metric("微信推送", "成功" if latest and latest["pushed"] else "未推送")
 
-strategies = build_intraday_candidates(settings.database_path)
-candidates = strategies["综合伏击候选"]
-sectors = strategies["强势板块"]
-if not sectors.empty:
-    st.caption("当前强势板块：" + " · ".join(sectors["sector_name"].astype(str)))
+if latest and latest.get("error"):
+    st.error(latest["error"])
+if latest and latest.get("message"):
+    with st.expander("最近一次微信内容", expanded=True):
+        st.text(latest["message"])
 
-if candidates.empty:
-    st.info("当前没有同时满足全部条件的股票。首次使用请依次完成左侧1、2、3步；严格交集为空属于正常结果。")
+st.subheader("推荐历史")
+if not runs:
+    st.info("后台服务尚未产生记录。可以先运行 `python3 -m stock_assistant.runner --once --no-push` 进行验证。")
 else:
-    table = candidates.rename(columns={
-        "ts_code": "股票代码", "name": "股票名称", "industry": "所属行业", "strategy_score": "综合评分",
-        "price": "现价", "pct_chg": "当日涨幅", "main_net": "大单净流入", "small_net": "非大单净流入",
-        "three_day_main": "3日主力净流入", "volume_ratio": "量比", "position60": "60日位置",
-        "confirm_price": "确认价格", "invalid_price": "失效价格", "source": "资金来源", "reason": "全部条件",
+    history = pd.DataFrame(runs).rename(columns={
+        "id": "任务ID", "run_at": "执行时间", "status": "状态", "market_state": "市场状态",
+        "up_ratio": "上涨占比", "median_pct": "涨跌中位数", "candidate_count": "候选数量",
+        "pushed": "已推送", "error": "错误",
     })
-    columns = ["股票代码", "股票名称", "所属行业", "综合评分", "现价", "当日涨幅", "大单净流入", "非大单净流入", "3日主力净流入", "量比", "60日位置", "确认价格", "失效价格", "资金来源", "全部条件"]
     event = st.dataframe(
-        table[columns], width="stretch", hide_index=True, on_select="rerun", selection_mode="single-row",
-        column_config={
-            "综合评分": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f"),
-            "60日位置": st.column_config.NumberColumn(format="%.1%%"),
-            "大单净流入": st.column_config.NumberColumn(format="%.0f 元"),
-            "非大单净流入": st.column_config.NumberColumn(format="%.0f 元"),
-        },
+        history[["任务ID", "执行时间", "状态", "市场状态", "上涨占比", "涨跌中位数", "候选数量", "已推送", "错误"]],
+        width="stretch", hide_index=True, on_select="rerun", selection_mode="single-row",
+        column_config={"上涨占比": st.column_config.NumberColumn(format="%.1%%"), "涨跌中位数": st.column_config.NumberColumn(format="%.2f%%")},
     )
-    if event.selection.rows:
-        selected = candidates.iloc[event.selection.rows[0]]
-        st.subheader(f"{selected['name']} · {selected['ts_code']}")
-        frame = price_frame(settings.database_path, selected["ts_code"]).tail(250).copy()
-        if not frame.empty:
-            frame["trade_date"] = pd.to_datetime(frame["trade_date"])
-            chart = go.Figure(go.Candlestick(x=frame["trade_date"], open=frame["open"], high=frame["high"], low=frame["low"], close=frame["close"], name="日K"))
-            chart.add_hline(y=selected["confirm_price"], line_dash="dash", line_color="#e6a23c", annotation_text="确认价")
-            chart.add_hline(y=selected["invalid_price"], line_dash="dot", line_color="#d94f4f", annotation_text="失效价")
-            chart.update_layout(height=520, xaxis_rangeslider_visible=False)
-            st.plotly_chart(chart, width="stretch")
+    run_id = int(history.iloc[event.selection.rows[0]]["任务ID"]) if event.selection.rows else int(history.iloc[0]["任务ID"])
+    items = [dict(row) for row in query(settings.database_path, "SELECT * FROM recommendation_items WHERE run_id=? ORDER BY rank_no", (run_id,))]
+    st.subheader(f"任务 #{run_id} 候选详情")
+    if not items:
+        st.caption("该次执行没有同时满足全部条件的股票。")
+    else:
+        table = pd.DataFrame(items).rename(columns={
+            "rank_no": "排名", "ts_code": "股票代码", "name": "股票名称", "industry": "所属行业",
+            "score": "评分", "price": "价格", "pct_chg": "涨幅", "main_net": "大单净流入",
+            "small_net": "非大单净流入", "volume_ratio": "量比", "position60": "60日位置",
+            "confirm_price": "确认价", "invalid_price": "失效价", "source": "数据来源", "reason": "条件",
+        })
+        st.dataframe(table[["排名", "股票代码", "股票名称", "所属行业", "评分", "价格", "涨幅", "大单净流入", "非大单净流入", "量比", "60日位置", "确认价", "失效价", "数据来源", "条件"]], width="stretch", hide_index=True)
 
-st.caption("仅用于研究，不构成投资建议。“大单/非大单”是行情平台按成交规模划分的代理口径，不代表真实账户身份。")
+st.caption("仅供研究，不构成投资建议。后台服务和微信推送状态请使用 systemctl --user status daily-ambush-stock 查看。")
