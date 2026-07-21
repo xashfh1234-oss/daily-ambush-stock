@@ -161,6 +161,11 @@ def run_daemon() -> None:
         except Exception as error:
             print(f"[{datetime.now():%F %T}] 首次初始化失败，60秒后重试：{error}", flush=True)
             time_module.sleep(60)
+    if query(settings.database_path, "SELECT COUNT(*) n FROM recommendation_runs")[0]["n"] == 0:
+        try:
+            run_once(push=True, refresh_daily=False)
+        except Exception as error:
+            print(f"[{datetime.now():%F %T}] 首次推荐失败，将在下个时段重试：{error}", flush=True)
     while True:
         now = datetime.now()
         slot = f"{now:%Y%m%d%H}{now.minute // SCAN_INTERVAL_MINUTES}"
