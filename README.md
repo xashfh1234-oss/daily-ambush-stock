@@ -14,7 +14,7 @@
 ## 运行
 
 ```bash
-cd /home/robotera/每日伏击股
+cd /home/robotera/daily-ambush-stock
 python3 -m pip install -r requirements.txt
 streamlit run app.py --server.address 127.0.0.1
 ```
