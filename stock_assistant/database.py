@@ -157,13 +157,14 @@ CREATE TABLE IF NOT EXISTS recommendation_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT, run_at TEXT NOT NULL,
     status TEXT NOT NULL, market_state TEXT, up_ratio REAL, median_pct REAL,
     candidate_count INTEGER NOT NULL DEFAULT 0, pushed INTEGER NOT NULL DEFAULT 0,
-    message TEXT, error TEXT
+    message TEXT, error TEXT, slot_label TEXT, is_final INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS recommendation_items (
     run_id INTEGER NOT NULL, rank_no INTEGER NOT NULL, ts_code TEXT NOT NULL,
     name TEXT, industry TEXT, score REAL, price REAL, pct_chg REAL,
     main_net REAL, small_net REAL, volume_ratio REAL, position60 REAL,
     confirm_price REAL, invalid_price REAL, source TEXT, reason TEXT,
+    appearance_count INTEGER NOT NULL DEFAULT 1, lifecycle TEXT, final_score REAL,
     PRIMARY KEY (run_id,ts_code),
     FOREIGN KEY (run_id) REFERENCES recommendation_runs(id)
 );
@@ -199,6 +200,18 @@ def initialize(path: Path) -> None:
         sector_columns = {row[1] for row in connection.execute("PRAGMA table_info(intraday_sectors)")}
         if "source" not in sector_columns:
             connection.execute("ALTER TABLE intraday_sectors ADD COLUMN source TEXT")
+        run_columns = {row[1] for row in connection.execute("PRAGMA table_info(recommendation_runs)")}
+        if "slot_label" not in run_columns:
+            connection.execute("ALTER TABLE recommendation_runs ADD COLUMN slot_label TEXT")
+        if "is_final" not in run_columns:
+            connection.execute("ALTER TABLE recommendation_runs ADD COLUMN is_final INTEGER NOT NULL DEFAULT 0")
+        item_columns = {row[1] for row in connection.execute("PRAGMA table_info(recommendation_items)")}
+        if "appearance_count" not in item_columns:
+            connection.execute("ALTER TABLE recommendation_items ADD COLUMN appearance_count INTEGER NOT NULL DEFAULT 1")
+        if "lifecycle" not in item_columns:
+            connection.execute("ALTER TABLE recommendation_items ADD COLUMN lifecycle TEXT")
+        if "final_score" not in item_columns:
+            connection.execute("ALTER TABLE recommendation_items ADD COLUMN final_score REAL")
 
 
 def backup_database(path: Path, keep: int = 7) -> Path | None:

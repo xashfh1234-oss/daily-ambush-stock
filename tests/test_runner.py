@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from datetime import datetime
 
 import pandas as pd
 
@@ -31,3 +32,11 @@ def test_run_once_saves_and_pushes_recommendation(tmp_path, monkeypatch):
     assert run["pushed"] == 1
     assert len(query(path, "SELECT * FROM recommendation_items WHERE run_id=?", (run_id,))) == 1
     assert "样例" in pushed[0]
+    assert run["slot_label"] == "手动"
+
+
+def test_due_scan_uses_key_times():
+    assert runner._due_scan(datetime(2026, 7, 21, 9, 45)) == ("09:45", False)
+    assert runner._due_scan(datetime(2026, 7, 21, 14, 45)) == ("14:45", True)
+    assert runner._due_scan(datetime(2026, 7, 21, 12, 0)) is None
+    assert runner._due_scan(datetime(2026, 7, 19, 9, 45)) is None
