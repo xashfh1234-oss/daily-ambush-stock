@@ -286,7 +286,8 @@ def sync_market_batch(path, limit: int | None = None, callback: ProgressCallback
                     if not pool_broken:
                         submit_one()
         finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+            # 正常批次完成后回收常连接工作进程，避免 TDX 心跳线程让子进程残留。
+            executor.shutdown(wait=not pool_broken, cancel_futures=True)
 
         if pool_broken:
             pool_restarts += 1
