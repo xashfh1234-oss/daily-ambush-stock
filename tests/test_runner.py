@@ -39,6 +39,6 @@ def test_run_once_saves_and_pushes_recommendation(tmp_path, monkeypatch):
 def test_due_scan_uses_key_times():
     assert runner._due_scan(datetime(2026, 7, 21, 9, 45)) == ("09:45", False, False)
     assert runner._due_scan(datetime(2026, 7, 21, 14, 45)) == ("14:45", True, False)
-    assert runner._due_scan(datetime(2026, 7, 21, 10, 50)) == ("10:30", False, True)
+    assert runner._due_scan(datetime(2026, 7, 21, 10, 20)) == ("10:05", False, True)
     assert runner._due_scan(datetime(2026, 7, 21, 12, 0)) is None
     assert runner._due_scan(datetime(2026, 7, 19, 9, 45)) is None
