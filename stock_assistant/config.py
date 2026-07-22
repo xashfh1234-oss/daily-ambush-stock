@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 from pathlib import Path
-import os
-
 from dotenv import load_dotenv
 
 
@@ -21,7 +19,6 @@ class Settings:
     drawdown_warning: float = 0.10
     drawdown_reduce: float = 0.15
     drawdown_protection: float = 0.20
-    tushare_token: str = os.getenv("TUSHARE_TOKEN", "").strip()
     database_path: Path = BASE_DIR / "data" / "stock_assistant.db"
 
 

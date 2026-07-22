@@ -79,7 +79,8 @@ else:
 st.subheader("数据与服务健康")
 sync = [dict(row) for row in query(settings.database_path, "SELECT * FROM intraday_sync_runs ORDER BY id DESC LIMIT 1")]
 outbox = query(settings.database_path, "SELECT status,COUNT(*) n FROM push_outbox GROUP BY status")
+price_sources = query(settings.database_path, "SELECT COALESCE(price_source,'未记录') source,COUNT(*) n FROM stock_sync_status WHERE price_status='DONE' GROUP BY price_source")
 if sync:
-    st.json({"最近快照": sync[0], "微信队列": {row["status"]: row["n"] for row in outbox}}, expanded=False)
+    st.json({"最近快照": sync[0], "日线来源": {row["source"]: row["n"] for row in price_sources}, "微信队列": {row["status"]: row["n"] for row in outbox}}, expanded=False)
 
 st.caption("仅供研究，不构成投资建议。后台服务和微信推送状态请使用 systemctl --user status daily-ambush-stock 查看。")

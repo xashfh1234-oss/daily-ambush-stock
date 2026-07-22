@@ -7,7 +7,7 @@ def sample_prices(count=120):
     return pd.DataFrame({
         "trade_date": pd.date_range("2025-01-01", periods=count).strftime("%Y%m%d"),
         "close": [10 + i * 0.02 for i in range(count)],
-        "amount": [200_000 for _ in range(count)],  # Tushare单位：千元
+        "amount": [200_000 for _ in range(count)],  # 库内单位：千元
     })
 
 

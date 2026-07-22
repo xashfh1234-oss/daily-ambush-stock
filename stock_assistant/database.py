@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS stock_sync_status (
     filter_reason TEXT,
     financial_status TEXT NOT NULL DEFAULT 'PENDING',
     last_price_date TEXT,
+    price_source TEXT,
     error TEXT,
     price_error TEXT,
     financial_error TEXT,
@@ -209,6 +210,8 @@ def initialize(path: Path) -> None:
             connection.execute("ALTER TABLE stock_sync_status ADD COLUMN price_error TEXT")
         if "financial_error" not in columns:
             connection.execute("ALTER TABLE stock_sync_status ADD COLUMN financial_error TEXT")
+        if "price_source" not in columns:
+            connection.execute("ALTER TABLE stock_sync_status ADD COLUMN price_source TEXT")
         money_columns = {row[1] for row in connection.execute("PRAGMA table_info(intraday_money_flow)")}
         if "source" not in money_columns:
             connection.execute("ALTER TABLE intraday_money_flow ADD COLUMN source TEXT")

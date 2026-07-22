@@ -14,6 +14,7 @@ import pandas as pd
 
 from .data_sources import BaoStockSource, normalize_code
 from .database import execute, initialize, query, upsert_records
+from .free_market_sources import TdxDailyClient, fetch_tencent_daily
 from .market import build_scores
 
 
@@ -50,9 +51,10 @@ def _run_with_timeout(seconds: int, operation, *args, **kwargs):
 
 
 _WORKER_BAOSTOCK = None
+_WORKER_TDX = None
 
 
-def _market_worker_initialize() -> None:
+def _baostock_worker_initialize() -> None:
     global _WORKER_BAOSTOCK
     import baostock as bs
 
@@ -78,42 +80,33 @@ def _baostock_healthcheck(attempts: int = 3) -> None:
     raise RuntimeError(f"BaoStock服务暂时不可用，未修改股票状态：{last_error}")
 
 
-def _market_worker_fetch(code: str, start_date: str, end_date: str) -> list[dict]:
-    global _WORKER_BAOSTOCK
-    if _WORKER_BAOSTOCK is None:
-        _market_worker_initialize()
-    _, ts_code, bao_code = normalize_code(code)
+def _market_worker_fetch(code: str, start_date: str, end_date: str) -> tuple[str, list[dict]]:
+    global _WORKER_TDX
+    if _WORKER_TDX is None:
+        _WORKER_TDX = TdxDailyClient()
+        _WORKER_TDX.connect()
+    errors = []
+    try:
+        return "通达信", _run_with_timeout(20, _WORKER_TDX.fetch, code, start_date, end_date)
+    except Exception as error:
+        errors.append(f"通达信: {error}")
+    try:
+        return "腾讯", _run_with_timeout(20, fetch_tencent_daily, code, start_date, end_date)
+    except Exception as error:
+        errors.append(f"腾讯: {error}")
+    raise RuntimeError("；".join(errors))
 
-    def fetch():
-        result = _WORKER_BAOSTOCK.query_history_k_data_plus(
-            bao_code, "date,open,high,low,close,preclose,volume,amount,pctChg",
-            start_date=pd.Timestamp(start_date).strftime("%Y-%m-%d"),
-            end_date=pd.Timestamp(end_date).strftime("%Y-%m-%d"), frequency="d", adjustflag="2",
-        )
-        rows = []
-        while result.error_code == "0" and result.next():
-            rows.append(result.get_row_data())
-        if result.error_code != "0":
-            raise RuntimeError(result.error_msg)
-        return pd.DataFrame(rows, columns=result.fields)
 
-    frame = _run_with_timeout(45, fetch)
-    if frame.empty:
-        raise RuntimeError("BaoStock历史行情返回空数据")
-    frame = frame.rename(columns={"date": "trade_date", "preclose": "pre_close", "volume": "vol", "pctChg": "pct_chg"})
-    frame["trade_date"] = pd.to_datetime(frame["trade_date"]).dt.strftime("%Y%m%d")
-    frame["ts_code"] = ts_code
-    numeric = ["open", "high", "low", "close", "pre_close", "vol", "amount", "pct_chg"]
-    frame[numeric] = frame[numeric].apply(pd.to_numeric, errors="coerce")
-    frame["vol"] = frame["vol"] / 100
-    frame["amount"] = frame["amount"] / 1000
-    return frame[["ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "pct_chg", "vol", "amount"]].to_dict("records")
+def _tdx_worker_initialize() -> None:
+    global _WORKER_TDX
+    _WORKER_TDX = TdxDailyClient()
+    _WORKER_TDX.connect()
 
 
 def _financial_worker_fetch(code: str, quarters_back: int) -> list[dict]:
     global _WORKER_BAOSTOCK
     if _WORKER_BAOSTOCK is None:
-        _market_worker_initialize()
+        _baostock_worker_initialize()
     return _run_with_timeout(
         90, BaoStockSource().fetch_financial_indicators,
         code, quarters_back, _WORKER_BAOSTOCK,
@@ -232,13 +225,11 @@ def sync_market_batch(path, limit: int | None = None, callback: ProgressCallback
         fetch_items.append((row, code_start.strftime("%Y%m%d"), end.strftime("%Y%m%d")))
 
     worker_count = max(1, min(int(os.getenv("MARKET_SYNC_WORKERS", "4")), 8))
-    if fetch_items:
-        _baostock_healthcheck()
     pending = deque(fetch_items)
     active_workers = worker_count
     pool_restarts = 0
     while pending:
-        executor = ProcessPoolExecutor(max_workers=active_workers, initializer=_market_worker_initialize)
+        executor = ProcessPoolExecutor(max_workers=active_workers, initializer=_tdx_worker_initialize)
         futures = {}
         pool_broken = False
 
@@ -265,7 +256,7 @@ def sync_market_batch(path, limit: int | None = None, callback: ProgressCallback
                     row = item[0]
                     code = row["ts_code"]
                     try:
-                        records = future.result()
+                        price_source, records = future.result()
                     except BrokenProcessPool:
                         retry_items = [item, *futures.values()]
                         futures.clear()
@@ -289,7 +280,7 @@ def sync_market_batch(path, limit: int | None = None, callback: ProgressCallback
                         allowed, reason = _filter_from_local(path, code, row["name"], row["list_date"])
                         latest = query(path, "SELECT MAX(trade_date) d FROM daily_prices WHERE ts_code=?", (code,))[0]["d"]
                         _update(path, code, price_status="DONE", eligible=int(allowed), filter_reason=reason,
-                                last_price_date=latest, price_error=None)
+                                last_price_date=latest, price_source=price_source, price_error=None)
                         succeeded += 1
                         eligible_count += int(allowed)
                     if not pool_broken:
@@ -325,7 +316,7 @@ def sync_financial_batch(path, limit: int | None = None, years_back: int = 2,
     quarters_back = 1
     worker_count = max(1, min(int(os.getenv("FINANCIAL_SYNC_WORKERS", "4")), 6))
     pending = deque(rows)
-    executor = ProcessPoolExecutor(max_workers=worker_count, initializer=_market_worker_initialize)
+    executor = ProcessPoolExecutor(max_workers=worker_count, initializer=_baostock_worker_initialize)
     futures = {}
 
     def submit_one() -> bool:

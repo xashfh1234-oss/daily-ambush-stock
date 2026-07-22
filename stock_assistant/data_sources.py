@@ -73,7 +73,7 @@ class AkShareSource:
         renamed["trade_date"] = pd.to_datetime(renamed["trade_date"]).dt.strftime("%Y%m%d")
         renamed["ts_code"] = ts_code
         renamed["pre_close"] = renamed["close"].shift(1)
-        # 统一成Tushare约定：成交量为手、成交额为千元。
+        # 库内统一单位：成交量为手、成交额为千元。
         renamed["amount"] = renamed["amount"] / 1000
         return upsert_records(path, "daily_prices", renamed.to_dict("records"),
                               ["ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "pct_chg", "vol", "amount"])
