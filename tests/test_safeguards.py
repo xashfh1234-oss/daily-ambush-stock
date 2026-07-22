@@ -23,6 +23,23 @@ def test_quality_blocks_incomplete_or_stale_data(tmp_path):
     assert result["confidence"] < .5
 
 
+def test_quality_uses_expected_session_when_intraday_bar_already_exists(tmp_path):
+    path = tmp_path / "quality.db"
+    initialize(path)
+    upsert_records(path, "trade_calendar", [
+        {"exchange": "SSE", "cal_date": "20260721", "is_open": 1, "pretrade_date": None},
+        {"exchange": "SSE", "cal_date": "20260722", "is_open": 1, "pretrade_date": "20260721"},
+    ], ["exchange", "cal_date", "is_open", "pretrade_date"])
+    prices = []
+    for index in range(3000):
+        prices.append({"ts_code": f"{index:06d}.SZ", "trade_date": "20260721", "close": 10})
+    prices.append({"ts_code": "000001.SZ", "trade_date": "20260722", "close": 10})
+    upsert_records(path, "daily_prices", prices, ["ts_code", "trade_date", "close"])
+    result = assess_data_quality(path, {"snapshot_at": "2026-07-22T10:30:00", "money": 5000, "sector": 80, "status": "COMPLETED"}, datetime(2026, 7, 22, 10, 31))
+    assert result["coverage"] == 3000
+    assert result["status"] != "BLOCKED"
+
+
 def test_known_risk_event_rejects_stock(tmp_path):
     path = tmp_path / "risk.db"
     initialize(path)

@@ -52,9 +52,7 @@ def expected_daily_date(path, now: datetime) -> str | None:
 def assess_data_quality(path, sync_result: dict, now: datetime) -> dict:
     expected = expected_daily_date(path, now)
     latest = query(path, "SELECT MAX(trade_date) d FROM daily_prices")[0]["d"]
-    coverage = 0
-    if latest:
-        coverage = query(path, "SELECT COUNT(DISTINCT ts_code) n FROM daily_prices WHERE trade_date=?", (latest,))[0]["n"]
+    coverage = query(path, "SELECT COUNT(DISTINCT ts_code) n FROM daily_prices WHERE trade_date=?", (expected,))[0]["n"] if expected else 0
     money = int(sync_result.get("money", 0))
     sector = int(sync_result.get("sector", 0))
     snapshot = pd.Timestamp(sync_result.get("snapshot_at")) if sync_result.get("snapshot_at") else None
@@ -63,8 +61,8 @@ def assess_data_quality(path, sync_result: dict, now: datetime) -> dict:
     sources = [row["source"] for row in source_rows]
     proxy = any("代理" in str(source) for source in sources)
     issues = []
-    if latest != expected:
-        issues.append(f"日线日期{latest or '无'}，预期{expected or '无'}")
+    if not coverage:
+        issues.append(f"缺少应检查交易日{expected or '未知'}的日线")
     if coverage < 3000:
         issues.append(f"日线覆盖不足({coverage})")
     if money < 1000:
@@ -75,12 +73,12 @@ def assess_data_quality(path, sync_result: dict, now: datetime) -> dict:
         issues.append(f"盘中快照延迟{age_minutes:.0f}分钟")
     confidence = 1.0
     confidence -= .2 if proxy else 0
-    confidence -= .2 if latest != expected else 0
+    confidence -= .2 if not coverage else 0
     confidence -= .2 if coverage < 3000 else 0
     confidence -= .2 if money < 1000 else 0
     confidence -= .1 if sector < 20 else 0
     confidence = max(0, confidence)
-    blocking = latest != expected or coverage < 3000 or money < 1000 or sector < 20 or age_minutes > 15
+    blocking = coverage < 3000 or money < 1000 or sector < 20 or age_minutes > 15
     return {
         "status": "BLOCKED" if blocking else ("DEGRADED" if proxy or sync_result.get("status") != "COMPLETED" else "OK"),
         "confidence": confidence, "issues": issues, "sources": sources, "proxy": proxy,
